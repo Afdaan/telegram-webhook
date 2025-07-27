@@ -112,7 +112,7 @@ async def add_link(update: Update, context: CallbackContext) -> None:
 
     user_id = query.from_user.id
     if user_id not in posts:
-        await send_message(update, "⚠️ Sesi telah berakhir. Silakan mulai dengan /start")
+        await send_message(update, "⚠️ Sesi telah berakhir. Silakan mulai dengan /start", context=context)
         return
 
     post_data = posts[user_id]
@@ -140,7 +140,7 @@ async def add_link(update: Update, context: CallbackContext) -> None:
         "• Ketik /done untuk selesai dan melihat preview"
     )
     
-    await send_message(update, status_text + instructions)
+    await send_message(update, status_text + instructions, context=context)
 
 async def send_preview(update: Update, context: CallbackContext, user_id: int):
     """Mengirim preview postingan dengan semua tombol yang sudah dibuat."""
@@ -153,11 +153,15 @@ async def send_preview(update: Update, context: CallbackContext, user_id: int):
     if not post_data.photos:
         return
 
-    # Determine if source is message or callback query
-    is_callback = hasattr(update, 'callback_query') and update.callback_query
-    source = update.callback_query if is_callback else update.message
-    if not source:
-        return  # Handle case where neither exists
+    # Get chat_id from either callback_query or message
+    chat_id = None
+    if hasattr(update, 'callback_query') and update.callback_query and update.callback_query.message:
+        chat_id = update.callback_query.message.chat_id
+    elif hasattr(update, 'message') and update.message:
+        chat_id = update.message.chat_id
+    else:
+        print("Warning: No valid chat_id found in send_preview")
+        return
 
     # Tampilkan button untuk post yang sedang aktif
     reply_markup = None
@@ -207,18 +211,26 @@ async def send_preview(update: Update, context: CallbackContext, user_id: int):
         
         preview_text += next_text
     
+    # Send photo preview using context.bot
     try:
-        await source.reply_photo(
+        await context.bot.send_photo(
+            chat_id=chat_id,
             photo=post_data.photos[current_index],
             caption=preview_text,
             reply_markup=reply_markup
         )
     except Exception as e:
+        print(f"Error sending photo preview: {e}")
         # Fallback jika gagal mengirim preview dengan photo
-        await source.reply_text(
-            f"📸 [Preview Post {current_index + 1}]\n\n{preview_text}",
-            reply_markup=reply_markup
-        )
+        try:
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=f"📸 [Preview Post {current_index + 1}]\n\n{preview_text}",
+                reply_markup=reply_markup
+            )
+        except Exception as fallback_error:
+            print(f"Fallback error: {fallback_error}")
+            return
     
     # Customize edit message based on multiple post state
     edit_message = "🔧 Edit postingan:"
@@ -229,7 +241,16 @@ async def send_preview(update: Update, context: CallbackContext, user_id: int):
         else:
             edit_message += "\nIni post terakhir, klik '✅ Done' untuk mengirim semua post"
     
-    await source.reply_text(edit_message, reply_markup=interface_markup)
+    # Send edit interface using context.bot
+    try:
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text=edit_message,
+            reply_markup=interface_markup
+        )
+    except Exception as e:
+        print(f"Error sending edit interface: {e}")
+    
     post_data.state = POST_STATES['EDITING']
 
 async def navigate_preview(update: Update, context: CallbackContext) -> None:
@@ -239,7 +260,7 @@ async def navigate_preview(update: Update, context: CallbackContext) -> None:
 
     user_id = query.from_user.id
     if user_id not in posts:
-        await send_message(update, "⚠️ Sesi telah berakhir. Silakan mulai dengan /start")
+        await send_message(update, "⚠️ Sesi telah berakhir. Silakan mulai dengan /start", context=context)
         return
 
     post_data = posts[user_id]
@@ -290,7 +311,7 @@ async def navigate_preview(update: Update, context: CallbackContext) -> None:
     else:
         status += f"\n\n🔸 Post {post_data.current_index + 1} dari {len(post_data.photos)}"
     
-    await send_message(update, status, reply_markup=markup)
+    await send_message(update, status, reply_markup=markup, context=context)
     await send_preview(update, context, user_id)
 
 async def cancel_command(update: Update, context: CallbackContext) -> None:
@@ -361,7 +382,7 @@ async def cancel(update: Update, context: CallbackContext) -> None:
         user_id = query.from_user.id
         if user_id in posts:
             del posts[user_id]
-            await send_message(update, "❌ Postingan dibatalkan.")
+            await send_message(update, "❌ Postingan dibatalkan.", context=context)
     else:
         await cancel_command(update, context)
 
@@ -372,7 +393,7 @@ async def done(update: Update, context: CallbackContext) -> None:
         await query.answer()
         user_id = query.from_user.id
         if user_id not in posts:
-            await send_message(update, "⚠️ Sesi telah berakhir. Silakan mulai dengan /start")
+            await send_message(update, "⚠️ Sesi telah berakhir. Silakan mulai dengan /start", context=context)
             return
 
         post_data = posts[user_id]
@@ -387,11 +408,11 @@ async def done(update: Update, context: CallbackContext) -> None:
             user_post_count[user_id] = 0
 
         if user_post_count[user_id] >= POST_LIMIT:
-            await send_message(update, "⚠️ Anda mencapai batas 50 postingan per menit.")
+            await send_message(update, "⚠️ Anda mencapai batas 50 postingan per menit.", context=context)
             return
 
         if not post_data.photos or not post_data.texts:
-            await send_message(update, "⚠️ Tidak ada postingan yang bisa dikirim!")
+            await send_message(update, "⚠️ Tidak ada postingan yang bisa dikirim!", context=context)
             return
 
         # Send all posts with their respective buttons
@@ -413,20 +434,21 @@ async def done(update: Update, context: CallbackContext) -> None:
                 if i < len(post_data.photos):  # Don't sleep after last post
                     await asyncio.sleep(0.5)  # Delay kecil antar pengiriman
             except Exception as send_error:
-                await send_message(update, f"⚠️ Gagal mengirim post ke-{i}: {str(send_error)}")
+                await send_message(update, f"⚠️ Gagal mengirim post ke-{i}: {str(send_error)}", context=context)
                 continue
 
         if success_count > 0:
             total_posts = len(post_data.photos)
             if success_count == total_posts:
-                await send_message(update, "✅ Semua postingan berhasil dikirim ke channel!")
+                await send_message(update, "✅ Semua postingan berhasil dikirim ke channel!", context=context)
             else:
                 await send_message(update, 
-                    f"⚠️ Berhasil mengirim {success_count} dari {total_posts} postingan ke channel."
+                    f"⚠️ Berhasil mengirim {success_count} dari {total_posts} postingan ke channel.",
+                    context=context
                 )
             del posts[user_id]
         else:
-            await send_message(update, "❌ Gagal mengirim semua postingan!")
+            await send_message(update, "❌ Gagal mengirim semua postingan!", context=context)
     else:
         await done_command(update, context)
 
@@ -437,17 +459,17 @@ async def delete_link(update: Update, context: CallbackContext) -> None:
     
     user_id = query.from_user.id
     if user_id not in posts:
-        await send_message(update, "⚠️ Sesi telah berakhir. Silakan mulai dengan /start")
+        await send_message(update, "⚠️ Sesi telah berakhir. Silakan mulai dengan /start", context=context)
         return
 
     post_data = posts[user_id]
     current_buttons = post_data.buttons_per_post[post_data.current_index]
     if current_buttons:
         removed_button = current_buttons.pop()
-        await send_message(update, f"✅ Tombol '{removed_button.text}' dihapus dari post {post_data.current_index + 1}!")
+        await send_message(update, f"✅ Tombol '{removed_button.text}' dihapus dari post {post_data.current_index + 1}!", context=context)
         await send_preview(update, context, user_id)
     else:
-        await send_message(update, "⚠️ Tidak ada tombol yang bisa dihapus untuk post ini!")
+        await send_message(update, "⚠️ Tidak ada tombol yang bisa dihapus untuk post ini!", context=context)
 
 async def receive_link(update: Update, context: CallbackContext) -> None:
     """Menerima link dari pengguna dan menambahkannya ke postingan."""
@@ -558,7 +580,7 @@ async def back_to_preview(update: Update, context: CallbackContext) -> None:
     
     user_id = query.from_user.id
     if user_id not in posts:
-        await send_message(update, "⚠️ Sesi telah berakhir. Silakan mulai dengan /start")
+        await send_message(update, "⚠️ Sesi telah berakhir. Silakan mulai dengan /start", context=context)
         return
         
     post_data = posts[user_id]
@@ -571,7 +593,7 @@ async def back_to_preview(update: Update, context: CallbackContext) -> None:
         summary = f"🔘 Button yang sudah ditambahkan untuk Post {post_data.current_index + 1}:"
         for i, btn in enumerate(current_buttons, 1):
             summary += f"\n{i}. {btn.text}"
-        await send_message(update, summary)
+        await send_message(update, summary, context=context)
     
     await send_preview(update, context, user_id)
 
@@ -582,12 +604,38 @@ async def error_handler(update: object, context: CallbackContext) -> None:
     if update and isinstance(update, Update) and update.message:
         await update.message.reply_text("⚠️ Terjadi kesalahan, coba lagi nanti.")
 
-async def send_message(update: Update, text: str, reply_markup=None):
+async def send_message(update: Update, text: str, reply_markup=None, context=None):
     """Helper function to send messages regardless of update source (message or callback)."""
-    if update.callback_query:
-        await update.callback_query.message.reply_text(text, reply_markup=reply_markup)
-    else:
-        await update.message.reply_text(text, reply_markup=reply_markup)
+    try:
+        # Get chat_id from either callback_query or message
+        chat_id = None
+        if hasattr(update, 'callback_query') and update.callback_query and update.callback_query.message:
+            chat_id = update.callback_query.message.chat_id
+        elif hasattr(update, 'message') and update.message:
+            chat_id = update.message.chat_id
+        
+        if not chat_id:
+            print("Warning: No valid chat_id found in send_message")
+            return
+            
+        # If we have context, use context.bot.send_message (most reliable)
+        if context:
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=text,
+                reply_markup=reply_markup
+            )
+        # For messages without context, use reply_text (safe)
+        elif hasattr(update, 'message') and update.message and not hasattr(update, 'callback_query'):
+            await update.message.reply_text(text, reply_markup=reply_markup)
+        # For callback queries without context, use callback_query.message.reply_text
+        elif hasattr(update, 'callback_query') and update.callback_query and update.callback_query.message:
+            await update.callback_query.message.reply_text(text, reply_markup=reply_markup)
+        else:
+            print("Error: Cannot send message - no valid method found")
+                
+    except Exception as e:
+        print(f"Error sending message: {e}")
 
 # Setup bot
 app = Application.builder().token(TOKEN).build()
