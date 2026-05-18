@@ -314,6 +314,14 @@ async def navigate_preview(update: Update, context: CallbackContext) -> None:
     await send_message(update, status, reply_markup=markup, context=context)
     await send_preview(update, context, user_id)
 
+async def ping(update: Update, context: CallbackContext) -> None:
+    """Menampilkan status dan latensi bot."""
+    start_time = time.time()
+    message = await update.message.reply_text("🏓 Mengukur latensi...")
+    end_time = time.time()
+    latency = round((end_time - start_time) * 1000)
+    await message.edit_text(f"🏓 Pong!\n🤖 Bot aktif dan berjalan dengan baik.\n⚡ Latensi: {latency}ms")
+
 async def cancel_command(update: Update, context: CallbackContext) -> None:
     """Handle /cancel command"""
     user_id = update.message.from_user.id
@@ -640,6 +648,7 @@ async def send_message(update: Update, text: str, reply_markup=None, context=Non
 # Setup bot
 app = Application.builder().token(TOKEN).build()
 app.add_handler(CommandHandler("start", start))
+app.add_handler(CommandHandler("ping", ping))
 app.add_handler(CallbackQueryHandler(create_post, pattern="^create_post_"))
 # Urutkan handler berdasarkan prioritas
 app.add_handler(CallbackQueryHandler(back_to_preview, pattern="^back_to_preview$"))
