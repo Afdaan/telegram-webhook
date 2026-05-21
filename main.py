@@ -4,6 +4,8 @@ import time
 import os
 import asyncio
 from dotenv import load_dotenv
+from http.server import HTTPServer, BaseHTTPRequestHandler
+import threading
 
 # Load environment variables
 load_dotenv()
@@ -645,6 +647,30 @@ async def send_message(update: Update, text: str, reply_markup=None, context=Non
     except Exception as e:
         print(f"Error sending message: {e}")
 
+class HealthCheckHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        if self.path in ('/health', '/'):
+            self.send_response(200)
+            self.send_header('Content-Type', 'text/plain')
+            self.end_headers()
+            self.wfile.write(b"OK")
+        else:
+            self.send_response(404)
+            self.end_headers()
+
+    def log_message(self, format, *args):
+        # Mute logging to stdout to keep console clean
+        pass
+
+def run_health_server():
+    port = int(os.getenv("PORT", "8080"))
+    try:
+        server = HTTPServer(('0.0.0.0', port), HealthCheckHandler)
+        print(f"🟢 Health check server started on port {port}")
+        server.serve_forever()
+    except Exception as e:
+        print(f"🔴 Failed to start health check server: {e}")
+
 # Setup bot
 app = Application.builder().token(TOKEN).build()
 app.add_handler(CommandHandler("start", start))
@@ -663,6 +689,10 @@ app.add_handler(CommandHandler("done", done_command))
 app.add_handler(MessageHandler(filters.PHOTO & filters.CAPTION, receive_media))
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, receive_link))
 app.add_error_handler(error_handler)
+
+# Run health check server in background thread
+health_thread = threading.Thread(target=run_health_server, daemon=True)
+health_thread.start()
 
 # Run bot
 print("🤖 Bot AUPA berjalan...")
