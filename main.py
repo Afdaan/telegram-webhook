@@ -6,6 +6,8 @@ import asyncio
 from dotenv import load_dotenv
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import threading
+import httpx
+from telegram.request import HTTPXRequest
 
 # Load environment variables
 load_dotenv()
@@ -672,7 +674,15 @@ def run_health_server():
         print(f"🔴 Failed to start health check server: {e}")
 
 # Setup bot
-app = Application.builder().token(TOKEN).build()
+request_config = HTTPXRequest(
+    connect_timeout=20.0,
+    read_timeout=20.0,
+    write_timeout=20.0,
+    httpx_kwargs={
+        "transport": httpx.AsyncHTTPTransport(local_address="0.0.0.0")
+    }
+)
+app = Application.builder().token(TOKEN).request(request_config).build()
 app.add_handler(CommandHandler("start", start))
 app.add_handler(CommandHandler("ping", ping))
 app.add_handler(CallbackQueryHandler(create_post, pattern="^create_post_"))

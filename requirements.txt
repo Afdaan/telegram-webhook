@@ -1,3 +1,4 @@
 python-telegram-bot>=21.11.1
 asyncio
 python-dotenv
+httpx
