@@ -24,6 +24,11 @@ load_dotenv()
 logger = logging.getLogger(__name__)
 
 
+class RedactingFormatter(logging.Formatter):
+    def format(self, record: logging.LogRecord) -> str:
+        return super().format(record).replace(TOKEN, "[REDACTED]")
+
+
 def required_env(name: str) -> str:
     value = os.getenv(name, "").strip()
     if not value:
@@ -706,6 +711,23 @@ def create_health_server() -> HTTPServer:
     return HTTPServer(("0.0.0.0", port), HealthCheckHandler)
 
 
+def configure_logging() -> None:
+    level_name = os.getenv("LOG_LEVEL", "WARNING").upper()
+    level = getattr(logging, level_name, None)
+    if not isinstance(level, int):
+        raise RuntimeError("LOG_LEVEL harus berupa DEBUG, INFO, WARNING, ERROR, atau CRITICAL")
+
+    log_format = "%(asctime)s %(levelname)s %(name)s: %(message)s"
+    logging.basicConfig(level=level, format=log_format)
+    logging.getLogger().setLevel(level)
+    formatter = RedactingFormatter(log_format)
+    for handler in logging.getLogger().handlers:
+        handler.setFormatter(formatter)
+
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
+
+
 def build_application() -> Application:
     request_config = HTTPXRequest(
         connect_timeout=20.0,
@@ -736,10 +758,7 @@ def build_application() -> Application:
 
 
 def main() -> None:
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-    )
+    configure_logging()
     application = build_application()
     health_server = create_health_server()
     health_thread = threading.Thread(target=health_server.serve_forever, daemon=True)
@@ -748,7 +767,10 @@ def main() -> None:
     logger.info("Bot AUPA berjalan dalam mode polling")
 
     try:
-        application.run_polling(drop_pending_updates=True)
+        application.run_polling(
+            allowed_updates=[Update.MESSAGE, Update.CALLBACK_QUERY],
+            drop_pending_updates=True,
+        )
     finally:
         health_server.shutdown()
         health_server.server_close()
