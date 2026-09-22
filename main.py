@@ -8,6 +8,7 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 import httpx
 from dotenv import load_dotenv
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram.error import Conflict
 from telegram.ext import (
     Application,
     ApplicationHandlerStop,
@@ -653,6 +654,12 @@ async def back_to_preview(update: Update, context: CallbackContext) -> None:
 async def error_handler(update: object, context: CallbackContext) -> None:
     """Menangani error agar bot tidak crash."""
     error = context.error
+    if isinstance(error, Conflict):
+        logger.critical(
+            "Conflict getUpdates: ada webhook aktif atau instance bot lain memakai token yang sama. "
+            "Jalankan deleteWebhook atau matikan instance lain."
+        )
+        return
     if error is None:
         logger.error("Error handler dipanggil tanpa exception")
     else:
@@ -728,6 +735,18 @@ def configure_logging() -> None:
     logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 
+async def ensure_no_webhook(application: Application) -> None:
+    """Hapus webhook sisa agar mode polling tidak kena Conflict."""
+    info = await application.bot.get_webhook_info()
+    if not info.url:
+        return
+
+    logger.critical(
+        "Webhook aktif terdeteksi (pending=%s), menghapus otomatis agar polling bisa jalan",
+        info.pending_update_count,
+    )
+    await application.bot.delete_webhook(drop_pending_updates=True)
+
 def build_application() -> Application:
     request_config = HTTPXRequest(
         connect_timeout=20.0,
@@ -737,7 +756,13 @@ def build_application() -> Application:
             "transport": httpx.AsyncHTTPTransport(local_address="0.0.0.0")
         },
     )
-    application = Application.builder().token(TOKEN).request(request_config).build()
+    application = (
+        Application.builder()
+        .token(TOKEN)
+        .request(request_config)
+        .post_init(ensure_no_webhook)
+        .build()
+    )
     application.add_handler(TypeHandler(Update, authorize_update), group=-1)
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("ping", ping))
