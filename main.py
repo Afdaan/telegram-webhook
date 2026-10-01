@@ -8,7 +8,7 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 import httpx
 from dotenv import load_dotenv
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
-from telegram.error import Conflict
+from telegram.error import Conflict, TelegramError
 from telegram.ext import (
     Application,
     ApplicationHandlerStop,
@@ -443,7 +443,7 @@ async def publish_posts(update: Update, context: CallbackContext, user_id: int) 
     ):
         reply_markup = InlineKeyboardMarkup([[button] for button in buttons]) if buttons else None
         try:
-            await context.bot.send_photo(
+            sent_message = await context.bot.send_photo(
                 chat_id=CHANNEL_ID,
                 photo=photo,
                 caption=text,
@@ -455,6 +455,10 @@ async def publish_posts(update: Update, context: CallbackContext, user_id: int) 
         else:
             success_count += 1
             user_post_count[user_id] = user_post_count.get(user_id, 0) + 1
+            try:
+                await sent_message.set_reaction("❤️")
+            except TelegramError:
+                logger.exception("Gagal memberi reaksi pada post %s untuk user %s", index, user_id)
 
         if index < total_posts:
             await asyncio.sleep(0.5)
