@@ -7,8 +7,8 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 
 import httpx
 from dotenv import load_dotenv
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
-from telegram.error import Conflict, TelegramError
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Message, Update
+from telegram.error import BadRequest, Conflict, NetworkError, TelegramError
 from telegram.ext import (
     Application,
     ApplicationHandlerStop,
@@ -399,6 +399,25 @@ def has_post_capacity(user_id: int, requested_posts: int) -> bool:
     return user_post_count.get(user_id, 0) + requested_posts <= POST_LIMIT
 
 
+async def add_love_reaction(message: Message) -> None:
+    for attempt in range(3):
+        try:
+            await message.set_reaction("❤️")
+            return
+        except TelegramError as error:
+            retryable = isinstance(error, NetworkError) and not isinstance(error, BadRequest)
+            if retryable and attempt < 2:
+                await asyncio.sleep(attempt + 1)
+                continue
+            logger.warning(
+                "Gagal memberi reaksi pada pesan %s di chat %s (%s): %s",
+                message.message_id,
+                message.chat_id,
+                type(error).__name__,
+                error,
+            )
+            return
+
 async def publish_posts(update: Update, context: CallbackContext, user_id: int) -> None:
     post_data = posts.get(user_id)
     if post_data is None:
@@ -455,10 +474,7 @@ async def publish_posts(update: Update, context: CallbackContext, user_id: int) 
         else:
             success_count += 1
             user_post_count[user_id] = user_post_count.get(user_id, 0) + 1
-            try:
-                await sent_message.set_reaction("❤️")
-            except TelegramError:
-                logger.exception("Gagal memberi reaksi pada post %s untuk user %s", index, user_id)
+            await add_love_reaction(sent_message)
 
         if index < total_posts:
             await asyncio.sleep(0.5)
