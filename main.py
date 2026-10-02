@@ -8,6 +8,7 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 import httpx
 from dotenv import load_dotenv
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Message, Update
+from telegram.constants import ReactionEmoji
 from telegram.error import BadRequest, Conflict, NetworkError, TelegramError
 from telegram.ext import (
     Application,
@@ -402,7 +403,7 @@ def has_post_capacity(user_id: int, requested_posts: int) -> bool:
 async def add_love_reaction(message: Message) -> None:
     for attempt in range(3):
         try:
-            await message.set_reaction("❤️")
+            await message.set_reaction(ReactionEmoji.RED_HEART)
             return
         except TelegramError as error:
             retryable = isinstance(error, NetworkError) and not isinstance(error, BadRequest)
